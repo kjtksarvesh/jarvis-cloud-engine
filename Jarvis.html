@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>JARVIS // MARK VIII ULTRA</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/docx/7.8.2/docx.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Noto+Sans+Tamil:wght@400;700&display=swap');
+:root{--bg:#050f14;--p:#40e0d0;--a:#ff3366;--ok:#00ff88;--panel:rgba(5,15,20,.95)}
+*{box-sizing:border-box}
+body{margin:0;height:100vh;height:100dvh;display:flex;background:var(--bg);color:var(--p);font-family:'Share Tech Mono','Noto Sans Tamil',monospace;overflow:hidden}
+.glow{text-shadow:0 0 10px rgba(64,224,208,.7)}
+.box{border:1px solid rgba(64,224,208,.5);box-shadow:0 0 20px rgba(64,224,208,.2) inset}
+aside{width:310px;padding:16px;display:flex;flex-direction:column;gap:9px;background:var(--panel);border-right:1px solid var(--p);overflow-y:auto;transition:.3s ease}
+main{flex:1;display:flex;flex-direction:column;padding:16px;min-width:0}
+.stat{padding:8px 12px;border-left:3px solid var(--p);background:rgba(64,224,208,.05)}
+.stat small{display:block;color:#7fb8b2;font-size:11px}.stat b{font-size:16px;color:#fff}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;padding:10px 14px;border:1px solid var(--p);border-radius:8px;background:rgba(64,224,208,.05)}
+.top input{width:140px}
+#chat{flex:1;overflow-y:auto;padding:14px;margin-bottom:10px;border-radius:10px;display:flex;flex-direction:column;gap:10px;background:rgba(5,15,20,.85)}
+.msg{padding:10px 14px;max-width:88%;border-radius:6px;line-height:1.5;font-size:14px;overflow-wrap:anywhere}
+.msg.system{color:var(--ok);border-left:2px solid var(--ok);background:rgba(0,255,136,.05)}
+.msg.user{color:#fff;align-self:flex-end;border-right:2px solid #fff;background:rgba(255,255,255,.08)}
+.msg.jarvis{border-left:2px solid var(--p);background:rgba(64,224,208,.08)}
+.msg pre{background:#000;padding:8px;border-radius:4px;color:var(--ok);overflow-x:auto}
+.msg img{max-width:100%;border-radius:8px;margin-top:8px;border:1px solid var(--p);display:block}
+.row{display:flex;gap:8px}
+input[type=text],input[type=password]{flex:1;background:rgba(64,224,208,.1);border:1px solid var(--p);color:var(--ok);padding:10px;font:inherit;border-radius:6px;outline:none}
+button{background:rgba(64,224,208,.1);border:1px solid var(--p);color:var(--p);padding:8px 12px;cursor:pointer;font:inherit;font-weight:bold;border-radius:6px;transition:.2s}
+button:hover,button:focus-visible,button.on{background:var(--p);color:#000;outline:none}
+button.red{border-color:var(--a);color:var(--a)}button.red:hover,button.red.on{background:var(--a);color:#000}
+button.green{border-color:var(--ok);color:var(--ok)}button.green:hover,button.green.on{background:var(--ok);color:#000}
+#cursor{position:fixed;top:0;left:0;width:26px;height:26px;border:2px solid var(--a);border-radius:50%;pointer-events:none;z-index:99999;display:none;background:rgba(255,51,102,.3)}
+#pip{position:fixed;bottom:16px;right:16px;width:300px;height:225px;border:2px solid var(--ok);border-radius:10px;z-index:9999;display:none;background:#000;overflow:hidden;box-shadow:0 0 22px rgba(0,255,136,.35)}
+#pip canvas{width:100%;height:100%;transform:scaleX(-1)}
+#pip span{position:absolute;left:6px;font-size:12px;font-weight:bold;background:rgba(0,0,0,.75);padding:2px 8px;border-radius:4px;z-index:2}
+#mode{top:6px;color:var(--ok)}#act{bottom:6px;color:#0ff}
+.mobile-view aside{display:none!important}
+.mobile-view main{padding:10px}
+.mobile-view .top h1{font-size:16px!important}
+.mobile-view .row{flex-wrap:wrap}
+.mobile-view #pip{width:160px;height:120px;bottom:70px;right:10px}
+@media(max-width:800px){aside{display:none}#pip{width:160px;height:120px;bottom:70px;right:10px}}
+</style>
+</head>
+<body>
+<div id="pip"><span id="mode">MODE: OFF</span><span id="act">ACTION: NEUTRAL</span><canvas id="gc" width="320" height="240"></canvas></div>
+<div id="cursor"></div>
+<video id="cam" playsinline muted style="display:none"></video>
+
+<aside class="box" id="sidebar">
+  <h2 class="glow" style="margin:0;font-size:18px">JARVIS TELEMETRY</h2>
+  <div class="stat"><small>LOCAL TIME</small><b id="t-time">--</b></div>
+  <div class="stat"><small>CPU / RAM</small><b><span id="t-cpu">--%</span> / <span id="t-ram">--%</span></b></div>
+  <div class="stat"><small>BRIDGE STATUS</small><b id="t-bridge" style="color:var(--a)">CONNECTING...</b></div>
+  <div class="stat" style="border-left-color:var(--ok)">
+    <small>AI GAME PILOT</small>
+    <div class="row" style="margin-top:6px">
+      <button class="green" id="bBotStart">AI BOT ON</button>
+      <button class="red" id="bBotStop">STOP</button>
+    </div>
+  </div>
+  <div class="stat" style="border-left-color:var(--a)">
+    <small>HAND VISION CONTROL</small>
+    <div class="row" style="margin-top:6px;flex-wrap:wrap">
+      <button class="red" id="bMouse">MOUSE</button><button class="red" id="bGame">GAME</button><button class="red" id="bOff">OFF</button>
+    </div>
+  </div>
+</aside>
+
+<main>
+  <div class="top">
+    <div>
+      <h1 class="glow" style="margin:0;font-size:18px">JARVIS MARK VIII</h1>
+      <div id="status" style="font-size:11px;color:#94a3b8">STATUS: READY</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <button id="devToggle">📱 MOBILE</button>
+      <input type="password" id="key" placeholder="Groq Key" style="padding:6px;flex:none">
+      <input type="password" id="hf_key" placeholder="HF Key (Flux HD)" style="padding:6px;flex:none">
+    </div>
+  </div>
+
+  <div id="chat" class="box"></div>
+
+  <div class="row">
+    <button class="red" id="mic">🎙 MIC</button>
+    <button class="red" id="wake" title="Always listen.">WAKE</button>
+    <button id="lang">EN</button>
+    <input type="text" id="in" placeholder="Command: generate hd image of iron man / close notepad / AI play mario..." autocomplete="off">
+    <button id="send">SEND</button>
+  </div>
+</main>
+
+<script>
+const API_URL="https://api.groq.com/openai/v1/chat/completions", MODEL="openai/gpt-oss-120b";
+const PRESET_API_KEY="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";
+const $=id=>document.getElementById(id), chat=$('chat'), inp=$('in');
+const ls={get:k=>{try{return localStorage.getItem(k)}catch{return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch{}}};
+$('key').value=ls.get('jv_key')||PRESET_API_KEY;
+$('key').onchange=e=>ls.set('jv_key',e.target.value.trim());
+$('hf_key').value=ls.get('jv_hf_key')||'';
+$('hf_key').onchange=e=>ls.set('jv_hf_key',e.target.value.trim());
+const setStatus=t=>$('status').textContent='STATUS: '+t;
+
+let isMobileMode=/Android|iPhone|iPad/i.test(navigator.userAgent)||window.innerWidth<=800;
+function applyDeviceMode(){
+  document.body.classList.toggle('mobile-view',isMobileMode);
+  $('devToggle').innerHTML=isMobileMode?'💻 PC VIEW':'📱 MOBILE';
+}
+$('devToggle').onclick=()=>{isMobileMode=!isMobileMode;applyDeviceMode()};
+applyDeviceMode();
+
+function add(who,text,cls){
+  const d=document.createElement('div');d.className='msg '+cls;
+  const b=document.createElement('b');b.textContent='['+who+'] ';
+  d.append(b,document.createTextNode(text));chat.append(d);chat.scrollTop=chat.scrollHeight;return d;
+}
+
+let ws=null,bridgeOn=false;
+function getBridgeHost(){return window.location.hostname==='localhost'||window.location.hostname==='127.0.0.1'?'127.0.0.1':window.location.hostname}
+function connect(){
+  if(ws&&(ws.readyState===WebSocket.OPEN||ws.readyState===WebSocket.CONNECTING))return;
+  $('t-bridge').textContent='CONNECTING...';$('t-bridge').style.color='#f59e0b';
+  try{ws=new WebSocket('ws://'+getBridgeHost()+':8765')}catch{setTimeout(connect,3000);return}
+  ws.onopen=()=>{bridgeOn=true;$('t-bridge').textContent='ONLINE';$('t-bridge').style.color='var(--ok)'};
+  ws.onclose=()=>{bridgeOn=false;$('t-bridge').textContent='OFFLINE';$('t-bridge').style.color='var(--a)';setTimeout(connect,3000)};
+  ws.onerror=()=>{try{ws.close()}catch{}};
+  ws.onmessage=e=>{
+    try{
+      const m=JSON.parse(e.data);
+      if(m.stats){$('t-cpu').textContent=m.stats.cpu+'%';$('t-ram').textContent=m.stats.ram+'%'}
+      if(m.log)add('SYSTEM',m.log,'system');
+      if(m.code_output){
+        const d=add('JARVIS','Output:','jarvis');
+        const pre=document.createElement('pre');pre.textContent=m.code_output;d.append(pre);
+      }
+    }catch{}
+  };
+}
+const bridge=o=>{if(bridgeOn&&ws&&ws.readyState===WebSocket.OPEN){ws.send(JSON.stringify(o));return true}return false};
+window.addEventListener('DOMContentLoaded',connect);
+
+let lang='en-IN',wake=false,rec=null;
+function speak(t){
+  const s=speechSynthesis;if(s.speaking)s.cancel();
+  const u=new SpeechSynthesisUtterance(String(t).replace(/[*_#`~]/g,''));
+  u.lang=/[\u0B80-\u0BFF]/.test(t)?'ta-IN':'en-IN';u.rate=1.05;s.speak(u);
+}
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+function listen(){
+  if(!SR)return add('SYSTEM','Chrome/Edge needed.','system');
+  try{rec&&rec.abort()}catch{}
+  rec=new SR();rec.lang=lang;rec.continuous=wake;
+  rec.onresult=e=>{
+    let t=e.results[e.results.length-1][0].transcript.trim();
+    if(wake){t=t.replace(/.*?(jarvis|ஜார்விஸ்|ஜாவிஸ்)[,\s]*/i,'')}
+    if(t)run(t);
+  };
+  rec.onend=()=>{$('mic').classList.remove('on');if(wake)setTimeout(listen,300)};
+  rec.start();$('mic').classList.add('on');setStatus('LISTENING...');
+}
+$('mic').onclick=()=>{wake=false;$('wake').classList.remove('on');listen()};
+$('wake').onclick=e=>{wake=!wake;e.target.classList.toggle('on',wake);if(wake)listen();else try{rec.abort()}catch{}};
+$('lang').onclick=e=>{lang=lang==='en-IN'?'ta-IN':'en-IN';e.target.textContent=lang==='en-IN'?'EN':'தமிழ்'};
+setInterval(()=>{$('t-time').textContent=new Date().toLocaleTimeString()},1000);
+
+const SYS=`You are JARVIS. Reply ONLY in JSON format: {"say":"short reply in user's language","do":[actions]}.
+Actions:
+- {"a":"hd_img","p":"detailed english prompt"}
+- {"a":"app_open","name":""}
+- {"a":"app_close","name":""}
+- {"a":"ai_game","game":"mario|subway","state":"start|stop"}
+- {"a":"code","lang":"python|shell","code":""}
+- {"a":"os","cmd":"vol_up|vol_down|mute|shot"}`;
+
+let hist=[];
+async function llm(messages){
+  const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+$('key').value.trim()},body:JSON.stringify({model:MODEL,messages,temperature:.4})});
+  const d=await r.json();if(d.error)throw new Error(d.error.message);return d.choices[0].message.content;
+}
+
+async function run(text){
+  add('YOU',text,'user');hist.push({role:'user',content:text});setStatus('PROCESSING...');
+  try{
+    const raw=await llm([{role:'system',content:SYS},...hist.slice(-10)]);
+    let j;try{j=JSON.parse(raw.slice(raw.indexOf('{'),raw.lastIndexOf('}')+1))}catch{j={say:raw,do:[]}}
+    hist.push({role:'assistant',content:j.say||''});
+    if(j.say){add('JARVIS',j.say,'jarvis');speak(j.say)}
+    for(const a of j.do||[])await act(a);
+    setStatus('READY');
+  }catch(e){add('SYSTEM','Error: '+e.message,'system');setStatus('ERROR')}
+}
+$('send').onclick=()=>{const t=inp.value.trim();if(t){inp.value='';run(t)}};
+inp.addEventListener('keydown',e=>{if(e.key==='Enter')$('send').click()});
+
+async function act(a){
+  if(a.a==='hd_img'){
+    generateFluxImage(a.p);
+  }else if(a.a==='app_open'){
+    bridge({t:'app_open',arg:a.name});
+  }else if(a.a==='app_close'){
+    bridge({t:'app_close',arg:a.name});
+  }else if(a.a==='ai_game'){
+    bridge({t:a.state==='start'?'ai_game_start':'ai_game_stop',game:a.game});
+    $('bBotStart').classList.toggle('on',a.state==='start');
+  }else if(a.a==='code'){
+    bridge({t:'run_code',lang:a.lang,code:a.code});
+  }else if(a.a==='os'){
+    bridge({t:a.cmd});
+  }
+}
+
+function generateFluxImage(p){
+  add('JARVIS','Rendering high quality image with FLUX.1 engine...','jarvis');
+  const token=$('hf_key').value.trim();
+  bridge({t:'gen_hd_img',prompt:p,token:token});
+  // Preview URL using enhanced FLUX render
+  const u=`https://image.pollinations.ai/prompt/${encodeURIComponent(p)}?model=flux&width=1024&height=1024&nologo=true`;
+  const d=add('JARVIS','HD Preview:','jarvis'),i=document.createElement('img');i.src=u;
+  d.append(i);
+}
+
+$('bBotStart').onclick=()=>act({a:'ai_game',state:'start',game:'mario'});
+$('bBotStop').onclick=()=>act({a:'ai_game',state:'stop'});
+add('SYSTEM','JARVIS Ready. Ultra HD Image engine & Bridge integrated.','system');
+</script>
+</body>
+</html>
