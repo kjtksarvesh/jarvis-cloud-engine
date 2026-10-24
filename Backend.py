@@ -1,95 +1,92 @@
-import platform
+import asyncio
+import websockets
+import json
+import psutil
+import os
+import http.server
+import socketserver
 import threading
-import time
-import urllib.parse
-from fastapi import FastAPI, BackgroundTasks
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+import webbrowser
 
-# Safely handle imports on headless servers like Render
-try:
-    import webbrowser
-    import pywhatkit
-    import pyautogui
-    import pyttsx3
-    DESKTOP_ENV = True
-except Exception:
-    DESKTOP_ENV = False
+PORT_HTTP = 8080
+PORT_WS = 8765
+clients = set()
 
-class JarvisBackend:
-    def __init__(self, user_name="Sarvesh", ai_name="JARVIS"):
-        self.user_name = user_name
-        self.ai_name = ai_name
-        if DESKTOP_ENV:
-            self.engine = pyttsx3.init()
-            self.configure_voice()
+# 1. HTML கோப்பை லோக்கல் சர்வரில் சர்வ் செய்ய (Serve Jarvis.html)
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # டெர்மினலில் தேவையற்ற HTTP லாப்ஸைத் தவிர்க்க
+        pass
 
-    def configure_voice(self):
-        voices = self.engine.getProperty('voices')
-        if platform.system() == "Windows":
-            self.engine.setProperty('voice', voices[0].id)
-        self.engine.setProperty('rate', 170)
+def start_http_server():
+    with socketserver.TCPServer(("", PORT_HTTP), Handler) as httpd:
+        print(f"🌐 Jarvis UI Server running at: http://localhost:{PORT_HTTP}/Jarvis.html")
+        httpd.serve_forever()
 
-    def speak(self, text):
-        print(f"{self.ai_name}: {text}")
-        if DESKTOP_ENV:
-            self.engine.say(text)
-            self.engine.runAndWait()
-
-    def process_command(self, query):
-        query = query.lower()
-        if "mario" in query:
-            self.speak("Opening Super Mario.")
-            if DESKTOP_ENV:
-                webbrowser.open("https://supermario-game.com/")
-                time.sleep(5)
-                screen_w, screen_h = pyautogui.size()
-                pyautogui.click(screen_w // 2, screen_h // 2)
-                pyautogui.press("enter")
-        elif "youtube" in query or "play" in query:
-            self.speak("Processing YouTube command.")
-            if DESKTOP_ENV:
-                if "play" in query:
-                    song = query.replace("play", "").replace("youtube", "").strip()
-                    pywhatkit.playonyt(song)
-        else:
-            self.speak(f"Received: {query}")
-
-app = FastAPI()
-jarvis = JarvisBackend()
-
-class Command(BaseModel):
-    query: str
-
-@app.post("/api/command")
-def receive_command(command: Command, background_tasks: BackgroundTasks):
-    background_tasks.add_task(jarvis.process_command, command.query)
-    return {"status": "success", "message": f"Executing: {command.query}"}
-
-@app.get("/", response_class=HTMLResponse)
-def web_interface():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>JARVIS</title></head>
-    <body style="background:#121212; color:#0ff; text-align:center; font-family:sans-serif; padding:20px;">
-        <h2>JARVIS Online</h2>
-        <input type="text" id="query" placeholder="Enter command" style="padding:10px; width:80%;">
-        <button onclick="sendCommand()" style="padding:10px; margin-top:10px;">Send</button>
-        <p id="status"></p>
-        <script>
-            function sendCommand() {
-                const query = document.getElementById('query').value;
-                document.getElementById('status').innerText = "Sending...";
-                fetch('/api/command', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query: query })
-                }).then(res => res.json()).then(data => {
-                    document.getElementById('status').innerText = data.message;
-                });
+# 2. CPU & RAM டெலிமெட்ரி டேட்டாவை அனுப்ப
+async def send_telemetry():
+    while True:
+        if clients:
+            stats = {
+                "stats": {
+                    "cpu": psutil.cpu_percent(),
+                    "ram": psutil.virtual_memory().percent
+                }
             }
-        </script>
-    </body>
-    </html>
-    """
+            message = json.dumps(stats)
+            for client in clients:
+                try:
+                    await client.send(message)
+                except:
+                    pass
+        await asyncio.sleep(2)
+
+# 3. HTML-ல் இருந்து வரும் கமாண்ட்களை ஹேண்டில் செய்ய (WebSocket Bridge)
+async def handle_commands(websocket):
+    clients.add(websocket)
+    print("Boss Sarvesh, UI Bridge Connected!")
+    await websocket.send(json.dumps({"log": "System Bridge Online, Boss Sarvesh. JARVIS is ready."}))
+    
+    try:
+        async for message in websocket:
+            data = json.loads(message)
+            cmd_type = data.get("t")
+            
+            if cmd_type == "app_open":
+                app_name = data.get("arg")
+                print(f"JARVIS: Opening application -> {app_name}")
+                os.system(f"start {app_name}")
+                await websocket.send(json.dumps({"log": f"Opened {app_name}"}))
+                
+            elif cmd_type == "app_close":
+                app_name = data.get("arg")
+                print(f"JARVIS: Closing application -> {app_name}")
+                os.system(f"taskkill /F /IM {app_name}.exe")
+                await websocket.send(json.dumps({"log": f"Closed {app_name}"}))
+                
+    except websockets.exceptions.ConnectionClosed:
+        print("UI Disconnected.")
+    finally:
+        clients.remove(websocket)
+
+async def main():
+    # HTTP சர்வரை ஒரு தனி Thread-ல் இயக்க (Background-ல் இயங்க)
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+    
+    # பிரவுசரில் ஆட்டோமேட்டிக்காக Jarvis.html-ஐ திறக்க
+    webbrowser.open(f"http://localhost:{PORT_HTTP}/Jarvis.html")
+
+    # WebSocket Telemetry Task-ஐ ஸ்டார்ட் செய்ய
+    asyncio.create_task(send_telemetry())
+    
+    # WebSocket சர்வரை 8765 போர்ட்டில் ரன் செய்ய
+    async with websockets.serve(handle_commands, "127.0.0.1", PORT_WS):
+        print(f"🚀 JARVIS WebSocket Bridge Running on ws://127.0.0.1:{PORT_WS}")
+        await asyncio.Future()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nJARVIS System Shutting Down...")
