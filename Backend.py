@@ -6,35 +6,31 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import uvicorn
 
-# கம்ப்யூட்டர் மவுஸ்/கீபோர்டு கண்ட்ரோலுக்கான லைப்ரரி (Render-ல் எரர் வராமல் தடுக்க Try/Except)
-try:
-    import pyautogui
-    pyautogui.FAILSAFE = False
-except ImportError:
-    pyautogui = None
+# கிளவுட் சர்வரில் (Render) டிஸ்ப்ளே இருக்காது என்பதால் pyautogui எரர் தராமல் தவிர்க்க
+pyautogui = None
+if os.name == 'nt':  # விண்டோஸ் கம்ப்யூட்டரில் மட்டும் மவுஸ்/கீபோர்டு ஒர்க் ஆகும்
+    try:
+        import pyautogui
+        pyautogui.FAILSAFE = False
+    except ImportError:
+        pass
 
 app = FastAPI()
 clients = set()
 bot_task = None
 
-# AI Game Automation லூப் (உதா: Mario Bot)
+# AI Game Automation (Game Bot) லூப்
 async def ai_game_pilot(game_name):
     print(f"JARVIS: Starting AI Game Pilot for {game_name}")
     try:
         while True:
             if pyautogui:
-                pyautogui.press('space') # கேமில் குதிக்க (Jump)
+                pyautogui.press('space')
             await asyncio.sleep(2)
     except asyncio.CancelledError:
         print("JARVIS: AI Game Pilot Stopped.")
 
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    if os.path.exists("Jarvis.html"):
-        with open("Jarvis.html", "r", encoding="utf-8") as f:
-            return f.read()
-    return "Jarvis.html file not found!"
-
+# 1. WebSocket Bridge Endpoint (Real-time connection)
 @app.websocket("/")
 async def websocket_endpoint(websocket: WebSocket):
     global bot_task
@@ -45,6 +41,7 @@ async def websocket_endpoint(websocket: WebSocket):
     try:
         await websocket.send_text(json.dumps({"log": "System Bridge Online, Boss Sarvesh. JARVIS is ready."}))
         
+        # CPU & RAM டெலிமெட்ரி டேட்டாவை லைவ் ஆக அனுப்ப
         async def send_stats():
             while True:
                 try:
@@ -56,12 +53,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
         stats_task = asyncio.create_task(send_stats())
 
+        # UI-ல் இருந்து வரும் கமாண்ட்களை ஹேண்டில் செய்ய
         while True:
             data_text = await websocket.receive_text()
             data = json.loads(data_text)
             cmd_type = data.get("t")
             
-            # --- 1. App Open / Close ---
             if cmd_type == "app_open":
                 app_name = data.get("arg")
                 if os.name == 'nt':
@@ -73,8 +70,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 if os.name == 'nt':
                     os.system(f"taskkill /F /IM {app_name}.exe")
                 await websocket.send_text(json.dumps({"log": f"Closed {app_name}"}))
-            
-            # --- 2. OS Media Controls ---
+                
             elif cmd_type == "vol_up":
                 if pyautogui: pyautogui.press("volumeup", presses=3)
                 await websocket.send_text(json.dumps({"log": "Volume Increased"}))
@@ -85,19 +81,8 @@ async def websocket_endpoint(websocket: WebSocket):
                 
             elif cmd_type == "mute":
                 if pyautogui: pyautogui.press("volumemute")
-                await websocket.send_text(json.dumps({"log": "Audio Muted/Unmuted"}))
-            
-            # --- 3. Hand Gesture & Mouse Control ---
-            elif cmd_type == "mouse_move":
-                x, y = data.get("x"), data.get("y")
-                if pyautogui and x and y:
-                    pyautogui.moveTo(x, y)
-                    
-            elif cmd_type == "mouse_click":
-                if pyautogui: pyautogui.click()
-                await websocket.send_text(json.dumps({"log": "Mouse Clicked via Gesture"}))
+                await websocket.send_text(json.dumps({"log": "Audio Muted"}))
                 
-            # --- 4. Game Automation (AI Pilot) ---
             elif cmd_type == "ai_game_start":
                 game = data.get("game")
                 if bot_task is None or bot_task.done():
@@ -118,6 +103,14 @@ async def websocket_endpoint(websocket: WebSocket):
         except:
             pass
 
+# 2. Catch-all Route: எந்த அட்ரஸை (URL) ஓபன் செய்தாலும் Jarvis.html மட்டுமே வர
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def serve_jarvis_html(full_path: str):
+    if os.path.exists("Jarvis.html"):
+        with open("Jarvis.html", "r", encoding="utf-8") as f:
+            return f.read()
+    return "Jarvis.html file not found in repository!"
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
-    uvicorn.run("backend:app", host="0.0.0.0", port=port)
+    uvicorn.run("Backend:app", host="0.0.0.0", port=port)
