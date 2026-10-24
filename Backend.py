@@ -1,148 +1,124 @@
-import asyncio
-import json
-import os
-import sys
-import subprocess
-import tempfile
+import platform
+import threading
 import time
-import requests
-import websockets
+import urllib.parse
+import webbrowser
+from fastapi import FastAPI, BackgroundTasks
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
-# Render தானாகவே PORT என்விரான்மென்ட் வேரியபிளை வழங்கும்
-PORT = int(os.environ.get("PORT", 8765))
+# Cloud-ல் Error வராமல் தடுக்க Try-Except பிளாக்
+try:
+    import pywhatkit
+    import pyautogui
+    import pyttsx3
+    DESKTOP_ENV = True
+except ImportError:
+    DESKTOP_ENV = False
 
-# --- AI Game Pilot Engine (Cloud Logic) ---
-ai_game_states = {}
+class JarvisBackend:
+    def __init__(self, user_name="Sarvesh", ai_name="JARVIS"):
+        self.user_name = user_name
+        self.ai_name = ai_name
+        
+        if DESKTOP_ENV:
+            self.engine = pyttsx3.init()
+            self.configure_voice()
 
-async def run_game_bot(client_id, game_name, ws):
-    """கிளவுட் வழியாக கேம் கமாண்டுகளை வெப் UI-க்கு அனுப்பும் ஆட்டோமேஷன்"""
-    step = 0
-    try:
-        while ai_game_states.get(client_id, False):
-            step += 1
-            if 'mario' in game_name.lower():
-                # மரியோவிற்கான மூவ்மென்ட் கமாண்டுகள்
-                actions = ['right']
-                if step % 4 == 0:
-                    actions.append('jump')
-                if step % 9 == 0:
-                    actions.append('speed')
-                await ws.send(json.dumps({'t': 'bot_action', 'actions': actions}))
-                await asyncio.sleep(0.12)
-            elif 'subway' in game_name.lower() or 'temple' in game_name.lower():
-                moves = ['up', 'down', 'left', 'right']
-                selected = moves[step % len(moves)]
-                await ws.send(json.dumps({'t': 'bot_action', 'actions': [selected]}))
-                await asyncio.sleep(0.35)
-            else:
-                await ws.send(json.dumps({'t': 'bot_action', 'actions': ['space']}))
-                await asyncio.sleep(0.5)
-    except Exception:
-        ai_game_states[client_id] = False
+    def configure_voice(self):
+        voices = self.engine.getProperty('voices')
+        current_os = platform.system()
+        if current_os == "Windows":
+            self.engine.setProperty('voice', voices[0].id)
+        self.engine.setProperty('rate', 170)
 
-# --- Backend Code Execution Engine ---
-def execute_python_code(code_str):
-    """கிளவுடில் பாதுகாப்பாக பைதான் கோடை ரன் செய்து அவுட்புட் தரும்"""
-    try:
-        with tempfile.NamedTemporaryFile(suffix='.py', mode='w', delete=False, encoding='utf-8') as f:
-            f.write(code_str)
-            temp_path = f.name
+    def speak(self, text):
+        print(f"{self.ai_name}: {text}")
+        if DESKTOP_ENV:
+            self.engine.say(text)
+            self.engine.runAndWait()
 
-        result = subprocess.run(
-            [sys.executable, temp_path],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        os.unlink(temp_path)
-        out = result.stdout if result.stdout else result.stderr
-        return out if out else "Code executed successfully with no output."
-    except subprocess.TimeoutExpired:
-        return "Execution Error: Process timed out (10s limit)."
-    except Exception as e:
-        return f"Execution Error: {str(e)}"
+    def play_super_mario(self):
+        self.speak(f"Opening Super Mario Bros for you, {self.user_name}.")
+        webbrowser.open("https://supermario-game.com/")
+        if DESKTOP_ENV:
+            time.sleep(5)
+            screen_w, screen_h = pyautogui.size()
+            pyautogui.click(screen_w // 2, screen_h // 2)
+            pyautogui.press("enter")
 
-# --- Enhanced Image Generation (Hugging Face / FLUX) ---
-def generate_flux_image(prompt, hf_token=""):
-    """ஹக்கிங் பேஸ் FLUX API மூலமாக இமேஜ் ஜெனரேட் செய்தல்"""
-    headers = {"Authorization": f"Bearer {hf_token}"} if hf_token else {}
-    api_url = "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell"
+    def handle_youtube(self, query):
+        if "play" in query:
+            song = query.replace("play", "").replace("on youtube", "").replace("youtube", "").strip()
+            self.speak(f"Playing {song} on YouTube")
+            if DESKTOP_ENV:
+                pywhatkit.playonyt(song)
+        elif "search" in query:
+            search_term = query.replace("search", "").replace("youtube", "").strip()
+            self.speak(f"Searching for {search_term}")
+            webbrowser.open(f"https://www.youtube.com/results?search_query={urllib.parse.quote_plus(search_term)}")
+        elif DESKTOP_ENV and ("pause" in query or "play video" in query):
+            pyautogui.press("k")
+        elif DESKTOP_ENV and "full screen" in query:
+            pyautogui.press("f")
 
-    if hf_token:
-        try:
-            response = requests.post(api_url, headers=headers, json={"inputs": prompt}, timeout=25)
-            if response.status_code == 200:
-                return {"status": "success", "source": "HuggingFace FLUX", "message": "Rendered via FLUX.1 Engine"}
-        except Exception:
-            pass
+    def process_command(self, query):
+        query = query.lower()
+        if "mario" in query:
+            self.play_super_mario()
+        elif "youtube" in query or "play" in query:
+            self.handle_youtube(query)
+        else:
+            self.speak(f"Command received: {query}")
 
-    # Fallback to Pollinations FLUX Engine
-    direct_url = f"https://image.pollinations.ai/prompt/{requests.utils.quote(prompt)}?model=flux&width=1024&height=1024&nologo=true"
-    return {"status": "success", "source": "Pollinations FLUX", "url": direct_url}
+app = FastAPI()
+jarvis = JarvisBackend()
 
-# --- WebSocket Server Handler ---
-async def handle_client(ws):
-    client_id = id(ws)
-    ai_game_states[client_id] = False
-    print(f"[JARVIS CLOUD] Client connected: {client_id}")
+class Command(BaseModel):
+    query: str
 
-    try:
-        # Client இணைந்ததும் வரவேற்பு செய்தி
-        await ws.send(json.dumps({
-            'log': 'Connected to JARVIS Cloud Engine (24/7 Online)',
-            'server_time': time.strftime("%Y-%m-%d %H:%M:%S")
-        }))
+@app.post("/api/command")
+def receive_command(command: Command, background_tasks: BackgroundTasks):
+    background_tasks.add_task(jarvis.process_command, command.query)
+    return {"status": "success", "message": f"JARVIS is executing: {command.query}"}
 
-        async for raw_message in ws:
-            try:
-                data = json.loads(raw_message)
-            except json.JSONDecodeError:
-                continue
+@app.get("/", response_class=HTMLResponse)
+def web_interface():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>JARVIS Control Panel</title>
+        <style>
+            body { font-family: sans-serif; background: #121212; color: #00ffcc; text-align: center; padding: 20px; }
+            input { width: 80%; padding: 15px; margin: 20px 0; border-radius: 8px; border: 1px solid #00ffcc; background: #222; color: white; font-size: 16px; }
+            button { padding: 15px 30px; background: #00ffcc; color: #121212; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; }
+        </style>
+    </head>
+    <body>
+        <h2>JARVIS Web Interface</h2>
+        <input type="text" id="query" placeholder="Type command here..." onkeydown="if(event.key === 'Enter') sendCommand()">
+        <br>
+        <button onclick="sendCommand()">Send to JARVIS</button>
+        <p id="status"></p>
 
-            action_type = data.get('t')
-
-            # 1. Keep-Alive Ping
-            if action_type == 'ping':
-                await ws.send(json.dumps({'t': 'pong', 'time': time.time()}))
-
-            # 2. கோட் எக்ஸிகியூஷன்
-            elif action_type == 'run_code':
-                code = data.get('code', '')
-                output = execute_python_code(code)
-                await ws.send(json.dumps({'code_output': output}))
-
-            # 3. இமேஜ் ஜெனரேஷன்
-            elif action_type == 'gen_hd_img':
-                prompt = data.get('prompt', '')
-                token = data.get('token', '')
-                res = generate_flux_image(prompt, token)
-                await ws.send(json.dumps({
-                    'log': f"Image processed ({res.get('source')})",
-                    'img_url': res.get('url', '')
-                }))
-
-            # 4. AI கேம் பாட் கன்ட்ரோல்
-            elif action_type == 'ai_game_start':
-                ai_game_states[client_id] = True
-                game = data.get('game', 'mario')
-                asyncio.create_task(run_game_bot(client_id, game, ws))
-                await ws.send(json.dumps({'log': f'Cloud AI Bot launched for {game}'}))
-
-            elif action_type == 'ai_game_stop':
-                ai_game_states[client_id] = False
-                await ws.send(json.dumps({'log': 'Cloud AI Bot halted.'}))
-
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        ai_game_states[client_id] = False
-        print(f"[JARVIS CLOUD] Client disconnected: {client_id}")
-
-async def main():
-    print(f"[JARVIS CLOUD] Initializing WebSocket Server on 0.0.0.0:{PORT}...")
-    async with websockets.serve(handle_client, "0.0.0.0", PORT):
-        print(f"[JARVIS CLOUD] Server is live and listening on port {PORT}!")
-        await asyncio.Future()
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        <script>
+            function sendCommand() {
+                const query = document.getElementById('query').value;
+                document.getElementById('status').innerText = "Sending command...";
+                fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: query })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('status').innerText = data.message;
+                    document.getElementById('query').value = '';
+                });
+            }
+        </script>
+    </body>
+    </html>
+    """
