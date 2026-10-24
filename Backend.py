@@ -89,24 +89,27 @@ def web_interface():
     <html>
     <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>JARVIS Control Panel</title>
+        <title>JARVIS Remote</title>
         <style>
             body { font-family: sans-serif; background: #121212; color: #00ffcc; text-align: center; padding: 20px; }
-            input { width: 80%; padding: 15px; margin: 20px 0; border-radius: 8px; border: 1px solid #00ffcc; background: #222; color: white; font-size: 16px; }
-            button { padding: 15px 30px; background: #00ffcc; color: #121212; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; }
+            input { width: 75%; padding: 15px; margin: 20px 0; border-radius: 8px; border: 1px solid #00ffcc; background: #222; color: white; font-size: 16px; }
+            button { padding: 15px 25px; background: #00ffcc; color: #121212; border: none; border-radius: 8px; font-size: 18px; font-weight: bold; cursor: pointer; margin: 5px; }
+            #mic-btn { background: #ff4444; color: white; }
         </style>
     </head>
     <body>
         <h2>JARVIS Web Interface</h2>
-        <input type="text" id="query" placeholder="Type command here..." onkeydown="if(event.key === 'Enter') sendCommand()">
+        <input type="text" id="query" placeholder="Type or speak a command..." onkeydown="if(event.key === 'Enter') sendCommand()">
         <br>
-        <button onclick="sendCommand()">Send to JARVIS</button>
+        <button id="mic-btn" onclick="startDictation()">🎤 Speak</button>
+        <button onclick="sendCommand()">Send</button>
         <p id="status"></p>
 
         <script>
             function sendCommand() {
                 const query = document.getElementById('query').value;
-                document.getElementById('status').innerText = "Sending command...";
+                if (!query) return;
+                document.getElementById('status').innerText = "Sending...";
                 fetch('/api/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -118,7 +121,33 @@ def web_interface():
                     document.getElementById('query').value = '';
                 });
             }
+
+            function startDictation() {
+                if (window.hasOwnProperty('webkitSpeechRecognition')) {
+                    const recognition = new webkitSpeechRecognition();
+                    recognition.continuous = false;
+                    recognition.interimResults = false;
+                    recognition.lang = "en-US";
+                    
+                    document.getElementById('status').innerText = "Listening...";
+                    recognition.start();
+
+                    recognition.onresult = function(e) {
+                        document.getElementById('query').value = e.results[0][0].transcript;
+                        recognition.stop();
+                        sendCommand();
+                    };
+
+                    recognition.onerror = function(e) {
+                        document.getElementById('status').innerText = "Error: " + e.error;
+                        recognition.stop();
+                    }
+                } else {
+                    document.getElementById('status').innerText = "Speech API not supported in this browser.";
+                }
+            }
         </script>
     </body>
     </html>
+    """
     """
